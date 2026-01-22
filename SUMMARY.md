@@ -6,25 +6,27 @@ This repository implements a complete multi-modal neural network training framew
 
 ## Requirements Fulfilled
 
-### ✅ 1. Multilingual ModernBERT (DAP, CLS Fine-tuning)
+### ✅ 1. Multilingual ModernBERT (DAP via MLM, CLS Fine-tuning)
 
-**Implementation**: `gennet/models/text_encoder.py`
+**Implementation**: `gennet/models/text_encoder.py`, `gennet/training/trainer.py`
 
 - ✅ Uses Answer.AI's ModernBERT model for multilingual text processing
-- ✅ Implements Discriminative Adapter Pooling (DAP) with multiple adapters and attention
+- ✅ Implements Domain-Adaptive Pre-Training (DAP) via masked language modeling (MLM)
+- ✅ Special token support for domain markers
 - ✅ Supports CLS token extraction for fine-tuning
 - ✅ Configurable fine-tuning mode (freeze/unfreeze parameters)
 
 **Key Features**:
-- `DAPPooling` class with 4 adapters (configurable)
-- Multi-head attention for adapter aggregation
-- Both CLS token and DAP pooled outputs available
+- Special token utilities in `ModernBERTEncoder`
+- Lightweight MLM pre-training integrated in the trainer
+- CLS token and mean-pooled outputs available
 - Supports any ModernBERT variant from Hugging Face
 
 ### ✅ 2. Multi-Modal Architecture (Text + Vision)
 
 **Text Component**: `gennet/models/text_encoder.py`
-- ModernBERT encoder with DAP pooling
+- ModernBERT encoder with CLS and mean pooling
+- DAP handled as pre-training (MLM)
 - Hidden size: 768 (base model)
 
 **Vision Component**: `gennet/models/vision_encoder.py`
@@ -118,7 +120,7 @@ This repository implements a complete multi-modal neural network training framew
 Gennet/
 ├── gennet/                      # Main package
 │   ├── models/                  # Model components
-│   │   ├── text_encoder.py     # ModernBERT + DAP
+│   │   ├── text_encoder.py     # ModernBERT + DAP (MLM utilities)
 │   │   ├── vision_encoder.py   # Siglip2 vision
 │   │   ├── fusion_layer.py     # Cross-modal fusion MLP
 │   │   ├── rl_layer.py         # RL Actor-Critic
@@ -145,7 +147,7 @@ Gennet/
 
 ### 1. ModernBERTEncoder (`gennet/models/text_encoder.py`)
 - **Lines of code**: ~130
-- **Key features**: DAP pooling, CLS token, multilingual support
+- **Key features**: CLS token, mean pooling, DAP utilities (special tokens), multilingual support
 - **Configurable**: Model name, max length, fine-tuning mode
 
 ### 2. Siglip2VisionEncoder (`gennet/models/vision_encoder.py`)
@@ -286,7 +288,7 @@ python train_example.py
 ## Implementation Status
 
 ✅ **All requirements implemented**:
-- [x] ModernBERT with DAP and CLS fine-tuning
+- [x] ModernBERT with DAP (MLM) and CLS fine-tuning
 - [x] Siglip2 vision encoder (vision-only mode)
 - [x] Multi-modal fusion with MLP and cross-attention
 - [x] Reinforcement Learning with Actor-Critic
@@ -299,7 +301,7 @@ python train_example.py
 
 This implementation provides a complete, production-ready framework for training multi-modal neural networks with reinforcement learning capabilities. All requirements from the problem statement have been fulfilled:
 
-1. ✅ Multilingual ModernBERT with DAP and CLS fine-tuning
+1. ✅ Multilingual ModernBERT with DAP (MLM) and CLS fine-tuning
 2. ✅ Multi-modal architecture combining text (ModernBERT) and vision (Siglip2)
 3. ✅ MLP-based cross-modal fusion layer
 4. ✅ Reinforcement Learning layer for reasoning

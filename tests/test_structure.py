@@ -102,8 +102,8 @@ def test_code_structure():
         with open('gennet/models/text_encoder.py', 'r') as f:
             content = f.read()
             assert 'class ModernBERTEncoder' in content
-            assert 'class DAPPooling' in content
-            print("✓ ModernBERTEncoder class defined")
+            assert 'def add_special_tokens' in content
+            print("✓ ModernBERTEncoder class and DAP-MLM utilities defined")
         
         with open('gennet/models/vision_encoder.py', 'r') as f:
             content = f.read()
@@ -130,7 +130,8 @@ def test_code_structure():
         with open('gennet/training/trainer.py', 'r') as f:
             content = f.read()
             assert 'class MultiModalTrainer' in content
-            print("✓ MultiModalTrainer class defined")
+            assert 'domain_adaptive_pretrain_mlm' in content
+            print("✓ MultiModalTrainer class and DAP-MLM method defined")
         
         return True
         

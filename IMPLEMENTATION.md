@@ -12,13 +12,13 @@ Gennet is a multi-modal neural network framework that combines text and vision e
 
 **Features:**
 - Uses multilingual ModernBERT from Answer.AI
-- Implements Discriminative Adapter Pooling (DAP)
+- Supports Domain-Adaptive Pre-Training (DAP) via MLM (handled in trainer)
+- Special token utilities for domain markers
 - Supports CLS token extraction for fine-tuning
 - Configurable fine-tuning mode
 
 **Key Classes:**
-- `DAPPooling`: Implements discriminative adapter pooling with multiple adapters and attention
-- `ModernBERTEncoder`: Main encoder class that wraps ModernBERT with DAP and CLS token support
+- `ModernBERTEncoder`: Main encoder class that wraps ModernBERT with CLS support and DAP utilities (special tokens)
 
 **Architecture:**
 ```
@@ -26,8 +26,8 @@ Input Text → Tokenizer → ModernBERT → Hidden States
                                            ↓
                         ┌──────────────────┴──────────────────┐
                         ↓                                      ↓
-                   CLS Token                            DAP Pooling
-                   (First Token)                   (Multi-Adapter + Attention)
+                   CLS Token                            Mean Pooling
+                   (First Token)                         (Sequence Avg)
                         ↓                                      ↓
                 Text Features                          Pooled Features
 ```
@@ -185,9 +185,10 @@ Image Input ──→ Siglip2 ────┘                          ↓
 config = ModelConfig(
     text_config=ModernBERTConfig(
         model_name="answerdotai/ModernBERT-base",
-        use_dap=True,
         use_cls_token=True,
-        finetune=True
+        finetune=True,
+        use_domain_adaptive_pretraining=True,
+        dap_special_tokens=["<DOMAIN_A>", "<DOMAIN_B>"]
     ),
     vision_config=Siglip2Config(
         model_name="google/siglip-base-patch16-224",
@@ -283,15 +284,16 @@ The implementation requires:
 The ModernBERT encoder is loaded from Hugging Face's transformers library using `AutoModel.from_pretrained()`. The implementation:
 - Supports both `answerdotai/ModernBERT-base` and `answerdotai/ModernBERT-large`
 - Can freeze/unfreeze parameters for fine-tuning
-- Extracts both CLS token and DAP pooled outputs
+- Extracts CLS token and mean-pooled outputs
+- Provides special token utilities for DAP (MLM)
 
-### 2. DAP (Discriminative Adapter Pooling)
+### 2. DAP (Domain-Adaptive Pre-Training via MLM)
 
-DAP is implemented as a custom module that:
-- Uses multiple adapter networks (default: 4)
-- Each adapter transforms hidden states independently
-- Multi-head attention aggregates adapter outputs
-- Provides better representation than simple mean pooling
+DAP is implemented as a training stage in the trainer that:
+- Adds optional domain-specific special tokens
+- Uses `AutoModelForMaskedLM` for masked language modeling
+- Fine-tunes the text encoder on domain text
+- Copies encoder weights back into the downstream text encoder
 
 ### 3. Siglip2 Integration
 

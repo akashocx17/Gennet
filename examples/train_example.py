@@ -64,8 +64,12 @@ def main():
             model_name="answerdotai/ModernBERT-base",
             max_length=128,
             use_cls_token=True,
-            use_dap=True,
-            finetune=True
+            finetune=True,
+            use_domain_adaptive_pretraining=True,
+            dap_special_tokens=["<DOMAIN_A>", "<DOMAIN_B>"],
+            dap_mlm_epochs=1,
+            dap_learning_rate=5e-5,
+            dap_masking_probability=0.15
         ),
         vision_config=Siglip2Config(
             model_name="google/siglip-base-patch16-224",
@@ -132,6 +136,26 @@ def main():
     trainer = MultiModalTrainer(model, config, device=device)
     trainer.configure_optimizers(learning_rate=1e-4)
     
+    # Optional: Domain-Adaptive Pre-Training (MLM) stage
+    if config.text_config.use_domain_adaptive_pretraining:
+        print("\n[3a/5] Running Domain-Adaptive Pre-Training (MLM)...")
+        # Create a tiny text corpus for demonstration
+        domain_texts = [
+            "Clinical findings indicate elevated markers <DOMAIN_A>.",
+            "Financial report shows increased revenue <DOMAIN_B>.",
+            "Research dataset contains genomic sequences <DOMAIN_A>.",
+            "Quarterly statements reflect market trends <DOMAIN_B>."
+        ]
+        text_loader = DataLoader(domain_texts, batch_size=2, shuffle=True)
+        trainer.domain_adaptive_pretrain_mlm(
+            text_dataloader=text_loader,
+            epochs=config.text_config.dap_mlm_epochs,
+            learning_rate=config.text_config.dap_learning_rate,
+            special_tokens=config.text_config.dap_special_tokens,
+            mask_probability=config.text_config.dap_masking_probability,
+            log_interval=1
+        )
+
     # Training
     print("\n[4/5] Starting training...")
     num_epochs = 2

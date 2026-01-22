@@ -5,7 +5,7 @@ A PyTorch-based framework for training multi-modal neural networks that combine 
 ## Features
 
 - **Multi-Lingual Text Processing**: ModernBERT encoder with:
-  - Discriminative Adapter Pooling (DAP)
+  - Domain-Adaptive Pre-Training (DAP) via MLM
   - CLS token fine-tuning support
   - Multi-lingual capabilities
 
@@ -33,7 +33,7 @@ A PyTorch-based framework for training multi-modal neural networks that combine 
 │  ┌──────────────────┐         ┌──────────────────┐          │
 │  │  ModernBERT      │         │  Siglip2 Vision  │          │
 │  │  Text Encoder    │         │  Encoder         │          │
-│  │  + DAP           │         │  (Vision Only)   │          │
+│  │  + DAP (MLM)     │         │  (Vision Only)   │          │
 │  │  + CLS Token     │         │                  │          │
 │  └────────┬─────────┘         └────────┬─────────┘          │
 │           │                            │                     │
@@ -91,6 +91,19 @@ trainer.configure_optimizers(learning_rate=1e-4)
 # Prepare your data (text_input_ids, text_attention_mask, pixel_values, labels)
 # Then train
 trainer.train_epoch(train_dataloader)
+
+# Optional: Domain-Adaptive Pre-Training (MLM)
+from torch.utils.data import DataLoader
+domain_texts = [
+  "Clinical findings indicate elevated markers <DOMAIN_A>.",
+  "Financial report shows increased revenue <DOMAIN_B>."
+]
+text_loader = DataLoader(domain_texts, batch_size=2, shuffle=True)
+trainer.domain_adaptive_pretrain_mlm(
+  text_dataloader=text_loader,
+  epochs=1,
+  special_tokens=["<DOMAIN_A>", "<DOMAIN_B>"]
+)
 ```
 
 ## Usage Example
@@ -118,9 +131,12 @@ from gennet.configs.model_config import (
 config = ModelConfig(
     text_config=ModernBERTConfig(
         model_name="answerdotai/ModernBERT-base",
-        use_dap=True,
         use_cls_token=True,
-        finetune=True
+        finetune=True,
+        use_domain_adaptive_pretraining=True,
+        dap_special_tokens=["<DOMAIN_A>", "<DOMAIN_B>"],
+        dap_mlm_epochs=1,
+        dap_learning_rate=5e-5
     ),
     vision_config=Siglip2Config(
         model_name="google/siglip-base-patch16-224",
@@ -143,7 +159,7 @@ config = ModelConfig(
 
 ### 1. Text Encoder (ModernBERT)
 - Multilingual support
-- Discriminative Adapter Pooling (DAP)
+- Domain-Adaptive Pre-Training (MLM) support
 - CLS token extraction
 - Fine-tuning support
 
@@ -186,9 +202,10 @@ trainer.save_checkpoint("checkpoint.pt", epoch=1)
 ## Model Components
 
 ### ModernBERTEncoder
-Handles text encoding with advanced pooling strategies:
+Handles text encoding with standard pooling and pre-training utilities:
 - Standard CLS token extraction
-- Discriminative Adapter Pooling (DAP)
+- Mean pooling
+- Special token utilities for DAP (MLM)
 - Configurable fine-tuning
 
 ### Siglip2VisionEncoder

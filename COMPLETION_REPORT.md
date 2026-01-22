@@ -14,22 +14,23 @@ All requirements from the problem statement have been successfully implemented.
 
 ## Problem Statement Requirements
 
-### Requirement 1: Multilingual ModernBERT with DAP and CLS Fine-tuning
+### Requirement 1: Multilingual ModernBERT with DAP (Domain-Adaptive Pre-Training) and CLS Fine-tuning
 **Status**: ✅ **COMPLETE**
 
-**Implementation**: `gennet/models/text_encoder.py`
+**Implementation**: `gennet/models/text_encoder.py`, `gennet/training/trainer.py`
 
 **Features Delivered**:
 - ✅ ModernBERT integration using Answer.AI's model
-- ✅ Discriminative Adapter Pooling (DAP) with 4 adapters and multi-head attention
+- ✅ Domain-Adaptive Pre-Training (DAP) via masked language modeling (MLM)
+- ✅ Special token support for domain markers
 - ✅ CLS token extraction support
 - ✅ Configurable fine-tuning mode (freeze/unfreeze parameters)
 - ✅ Multilingual support through ModernBERT architecture
 
 **Technical Details**:
-- Custom `DAPPooling` class with adapter networks
-- Attention-based pooling mechanism
-- Both CLS token and DAP pooled outputs available
+- Lightweight MLM pre-training step integrated in trainer
+- Special token utilities in `ModernBERTEncoder`
+- CLS token and mean-pooled outputs available
 - Fully configurable through `ModernBERTConfig`
 
 ---
@@ -38,7 +39,8 @@ All requirements from the problem statement have been successfully implemented.
 **Status**: ✅ **COMPLETE**
 
 **Text Encoder**: `gennet/models/text_encoder.py`
-- ModernBERT with DAP pooling
+- ModernBERT with CLS and mean pooling
+- DAP handled as pre-training (MLM)
 - Hidden size: 768 (base) or configurable
 
 **Vision Encoder**: `gennet/models/vision_encoder.py`
@@ -139,7 +141,7 @@ All requirements from the problem statement have been successfully implemented.
 ### Core Code (13 Python files, ~1,200 lines)
 
 1. **Models** (`gennet/models/`)
-   - `text_encoder.py` - ModernBERT + DAP
+   - `text_encoder.py` - ModernBERT + DAP (MLM utilities)
    - `vision_encoder.py` - Siglip2 vision
    - `fusion_layer.py` - Cross-modal fusion
    - `rl_layer.py` - Actor-Critic RL
@@ -209,7 +211,8 @@ All requirements from the problem statement have been successfully implemented.
 
 **ModernBERT Encoder**:
 - Base model: 768 hidden dimensions
-- DAP: 4 adapters with attention
+- DAP: Domain-Adaptive Pre-Training via MLM
+- Special token support
 - Configurable fine-tuning
 
 **Siglip2 Vision Encoder**:
@@ -324,7 +327,7 @@ python train_example.py
 
 All requirements from the problem statement have been successfully implemented:
 
-1. ✅ Multilingual ModernBERT with DAP and CLS fine-tuning
+1. ✅ Multilingual ModernBERT with DAP (MLM) and CLS fine-tuning
 2. ✅ Multi-modal architecture (Text + Vision)
 3. ✅ MLP cross-fusion layer with attention
 4. ✅ Reinforcement Learning layer for reasoning

@@ -18,7 +18,7 @@ class MultiModalModel(nn.Module):
     with cross-modal fusion and reinforcement learning for reasoning.
     
     Architecture:
-        1. Text Encoder: ModernBERT with DAP and CLS fine-tuning
+        1. Text Encoder: ModernBERT with CLS fine-tuning (DAP handled as pre-training)
         2. Vision Encoder: Siglip2 vision encoder
         3. Fusion Layer: MLP-based cross-modal fusion
         4. RL Layer: Actor-Critic for reasoning and decision making
@@ -37,7 +37,6 @@ class MultiModalModel(nn.Module):
             model_name=config.text_config.model_name,
             max_length=config.text_config.max_length,
             use_cls_token=config.text_config.use_cls_token,
-            use_dap=config.text_config.use_dap,
             finetune=config.text_config.finetune
         )
         
@@ -113,8 +112,10 @@ class MultiModalModel(nn.Module):
             text=text
         )
         
-        # Use pooled output from text encoder
-        text_features = text_outputs['pooled_output']
+        # Use sequence output for fusion
+        text_features = text_outputs['last_hidden_state']
+        # Get attention mask (might be generated inside encoder)
+        current_text_mask = text_outputs.get('attention_mask')
         
         # Encode vision
         vision_outputs = self.vision_encoder(
@@ -122,13 +123,14 @@ class MultiModalModel(nn.Module):
             images=images
         )
         
-        # Use pooled output from vision encoder
-        vision_features = vision_outputs['pooled_output']
+        # Use sequence output for fusion
+        vision_features = vision_outputs['last_hidden_state']
         
         # Fuse modalities
         fusion_outputs = self.fusion_layer(
             text_features=text_features,
-            vision_features=vision_features
+            vision_features=vision_features,
+            text_attention_mask=current_text_mask
         )
         
         fused_features = fusion_outputs['fused_output']
@@ -156,8 +158,10 @@ class MultiModalModel(nn.Module):
         
         # Return all outputs
         return {
-            'text_features': text_features,
-            'vision_features': vision_features,
+            'text_features': text_outputs['pooled_output'], # Return pooled for consistency/logging
+            'vision_features': vision_outputs['pooled_output'],
+            'text_sequence_features': text_features,
+            'vision_sequence_features': vision_features,
             'fused_features': fused_features,
             'final_features': final_features,
             'classification_logits': classification_logits,

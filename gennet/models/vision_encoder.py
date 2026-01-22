@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, SiglipVisionModel
 from typing import Dict, Optional, Union
 from PIL import Image
 
@@ -23,15 +23,27 @@ class Siglip2VisionEncoder(nn.Module):
         
         # Load Siglip2 model and processor
         self.processor = AutoProcessor.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
         
-        # Extract vision encoder if using vision only
         if use_vision_only:
-            self.vision_encoder = self.model.vision_model
-            self.hidden_size = self.vision_encoder.config.hidden_size
+            # Optimize: Load only vision model if possible
+            try:
+                self.model = SiglipVisionModel.from_pretrained(model_name)
+                self.vision_encoder = self.model
+            except Exception:
+                # Fallback to loading full model
+                self.model = AutoModel.from_pretrained(model_name)
+                if hasattr(self.model, 'vision_model'):
+                    self.vision_encoder = self.model.vision_model
+                else:
+                    self.vision_encoder = self.model
         else:
-            self.vision_encoder = self.model
-            self.hidden_size = self.model.config.vision_config.hidden_size
+            self.model = AutoModel.from_pretrained(model_name)
+            if hasattr(self.model, 'vision_model'):
+                self.vision_encoder = self.model.vision_model
+            else:
+                self.vision_encoder = self.model
+            
+        self.hidden_size = self.vision_encoder.config.hidden_size
             
     def forward(
         self,
@@ -58,13 +70,16 @@ class Siglip2VisionEncoder(nn.Module):
             pixel_values = pixel_values.to(next(self.vision_encoder.parameters()).device)
             
         # Get vision outputs
-        if self.use_vision_only:
-            outputs = self.vision_encoder(pixel_values=pixel_values, return_dict=True)
-        else:
-            outputs = self.vision_encoder.get_image_features(pixel_values=pixel_values, return_dict=True)
+        outputs = self.vision_encoder(pixel_values=pixel_values, return_dict=True)
         
+        # Handle pooling
+        if hasattr(outputs, 'pooler_output') and outputs.pooler_output is not None:
+            pooled_output = outputs.pooler_output
+        else:
+            pooled_output = outputs.last_hidden_state.mean(dim=1)
+            
         result = {
-            'pooled_output': outputs.pooler_output if hasattr(outputs, 'pooler_output') else outputs.last_hidden_state.mean(dim=1),
+            'pooled_output': pooled_output,
             'last_hidden_state': outputs.last_hidden_state
         }
         

@@ -139,12 +139,19 @@ class ReinforcementLearningLayer(nn.Module):
         Compute discounted returns.
         
         Args:
-            rewards: Tensor of rewards [batch, seq_len]
+            rewards: Tensor of rewards [batch, seq_len] or [batch]
             dones: Optional done flags [batch, seq_len]
             
         Returns:
             Discounted returns
         """
+        # Handle 1D rewards (single step)
+        if rewards.dim() == 1:
+            rewards = rewards.unsqueeze(1)
+            was_1d = True
+        else:
+            was_1d = False
+            
         returns = []
         R = 0
         
@@ -154,6 +161,10 @@ class ReinforcementLearningLayer(nn.Module):
             returns.insert(0, R)
             
         returns = torch.stack(returns, dim=1)
+        
+        if was_1d:
+            returns = returns.squeeze(1)
+            
         return returns
     
     def compute_policy_loss(

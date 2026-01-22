@@ -9,6 +9,7 @@ import logging
 
 from gennet.models.multimodal_model import MultiModalModel
 from gennet.configs.model_config import ModelConfig
+from transformers import AutoModelForMaskedLM, DataCollatorForLanguageModeling
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,6 +42,138 @@ class MultiModalTrainer:
         # Optimizers (will be set in configure_optimizers)
         self.optimizer = None
         self.rl_optimizer = None
+
+    def domain_adaptive_pretrain_mlm(
+        self,
+        text_dataloader: DataLoader,
+        epochs: Optional[int] = None,
+        learning_rate: Optional[float] = None,
+        special_tokens: Optional[list] = None,
+        mask_probability: Optional[float] = None,
+        log_interval: int = 10
+    ) -> None:
+        """Run Domain-Adaptive Pre-Training (MLM) for the text encoder.
+
+        This performs a lightweight masked language modeling fine-tuning step
+        using the model's tokenizer and optional domain-specific special tokens.
+
+        Args:
+            text_dataloader: Dataloader yielding batches with either 'text' (list[str])
+                             or pre-tokenized 'text_input_ids' and 'text_attention_mask'.
+            epochs: Number of epochs to run. Defaults to config.text_config.dap_mlm_epochs.
+            learning_rate: LR for MLM fine-tuning. Defaults to config.text_config.dap_learning_rate.
+            special_tokens: Optional list of special tokens to add to tokenizer.
+            mask_probability: Masking probability for MLM. Defaults to config.text_config.dap_masking_probability.
+            log_interval: Interval for logging during training.
+        """
+        # Resolve defaults from config
+        text_cfg = self.config.text_config
+        if epochs is None:
+            epochs = getattr(text_cfg, 'dap_mlm_epochs', 1)
+        if learning_rate is None:
+            learning_rate = getattr(text_cfg, 'dap_learning_rate', 5e-5)
+        if mask_probability is None:
+            mask_probability = getattr(text_cfg, 'dap_masking_probability', 0.15)
+        if special_tokens is None:
+            special_tokens = getattr(text_cfg, 'dap_special_tokens', None)
+
+        # Add special tokens to encoder and get tokenizer
+        tokenizer = self.model.text_encoder.get_tokenizer()
+        if special_tokens:
+            self.model.text_encoder.add_special_tokens(special_tokens)
+
+        # Initialize MLM model from same base
+        mlm_model = AutoModelForMaskedLM.from_pretrained(text_cfg.model_name)
+        mlm_model.resize_token_embeddings(len(tokenizer))
+        mlm_model.to(self.device)
+        mlm_model.train()
+
+        # Optimizer for MLM fine-tuning
+        mlm_optimizer = torch.optim.AdamW(mlm_model.parameters(), lr=learning_rate)
+
+        # Data collator for MLM
+        collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm=True,
+            mlm_probability=mask_probability
+        )
+
+        for epoch in range(epochs):
+            progress_bar = tqdm(text_dataloader, desc=f"DAP-MLM Epoch {epoch+1}/{epochs}")
+            for step, batch in enumerate(progress_bar):
+                # Prepare inputs: support raw text or tokenized inputs
+                if isinstance(batch, dict) and ('text' in batch):
+                    texts = batch['text']
+                    if isinstance(texts, (list, tuple)):
+                        enc = tokenizer(
+                            list(texts),
+                            padding=True,
+                            truncation=True,
+                            max_length=text_cfg.max_length,
+                            return_tensors='pt'
+                        )
+                    else:  # single string
+                        enc = tokenizer(
+                            [texts],
+                            padding=True,
+                            truncation=True,
+                            max_length=text_cfg.max_length,
+                            return_tensors='pt'
+                        )
+                    inputs = {k: v.to(self.device) for k, v in enc.items()}
+                elif isinstance(batch, dict) and ('text_input_ids' in batch and 'text_attention_mask' in batch):
+                    inputs = {
+                        'input_ids': batch['text_input_ids'].to(self.device),
+                        'attention_mask': batch['text_attention_mask'].to(self.device)
+                    }
+                else:
+                    # Assume batch is a list/tuple of strings
+                    if isinstance(batch, (list, tuple)):
+                        enc = tokenizer(
+                            list(batch),
+                            padding=True,
+                            truncation=True,
+                            max_length=text_cfg.max_length,
+                            return_tensors='pt'
+                        )
+                        inputs = {k: v.to(self.device) for k, v in enc.items()}
+                    else:
+                        raise ValueError("Unsupported batch format for DAP-MLM. Provide 'text' or tokenized inputs.")
+
+                # Masking via collator
+                masked = collator([inputs])  # collator expects a list of dicts
+                masked = {k: v.to(self.device) for k, v in masked.items()}
+
+                outputs = mlm_model(**masked)
+                loss = outputs.loss
+
+                mlm_optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(mlm_model.parameters(), max_norm=1.0)
+                mlm_optimizer.step()
+
+                if step % log_interval == 0:
+                    progress_bar.set_postfix({
+                        'mlm_loss': f"{loss.item():.4f}"
+                    })
+
+        # After MLM fine-tuning, copy encoder weights back into the text encoder
+        # Exclude LM head weights; only update base encoder
+        mlm_state = mlm_model.state_dict()
+        base_state = {k: v for k, v in mlm_state.items() if 'lm_head' not in k}
+
+        text_state = self.model.text_encoder.bert.state_dict()
+        # Match and update keys present in text encoder
+        updated_state = {}
+        for k, v in text_state.items():
+            if k in base_state:
+                updated_state[k] = base_state[k]
+            else:
+                updated_state[k] = v
+        # Resize embeddings to match tokenizer vocab
+        self.model.text_encoder.bert.resize_token_embeddings(len(tokenizer))
+        self.model.text_encoder.bert.load_state_dict(updated_state)
+        logger.info("Domain-Adaptive Pre-Training complete. Text encoder updated with MLM-finetuned weights.")
         
     def configure_optimizers(
         self,

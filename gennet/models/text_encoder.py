@@ -1,62 +1,29 @@
-"""ModernBERT text encoder with DAP and CLS fine-tuning."""
+"""ModernBERT text encoder with CLS fine-tuning and utilities for DAP (Domain-Adaptive Pre-Training)."""
 
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
-from typing import Dict, Optional
-
-
-class DAPPooling(nn.Module):
-    """Discriminative Adapter Pooling for ModernBERT."""
-    
-    def __init__(self, hidden_size: int, num_adapters: int = 4):
-        super().__init__()
-        self.num_adapters = num_adapters
-        self.adapters = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(hidden_size, hidden_size // 2),
-                nn.ReLU(),
-                nn.Linear(hidden_size // 2, hidden_size)
-            ) for _ in range(num_adapters)
-        ])
-        self.attention = nn.MultiheadAttention(hidden_size, num_heads=8, batch_first=True)
-        
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """Apply DAP to hidden states."""
-        # Apply adapters
-        adapted_states = []
-        for adapter in self.adapters:
-            adapted = adapter(hidden_states)
-            adapted_states.append(adapted)
-        
-        # Stack and apply attention
-        stacked = torch.stack(adapted_states, dim=1)  # [batch, num_adapters, seq_len, hidden]
-        batch_size, num_adapters, seq_len, hidden_size = stacked.shape
-        stacked = stacked.reshape(batch_size, num_adapters * seq_len, hidden_size)
-        
-        # Self-attention to pool
-        pooled, _ = self.attention(stacked, stacked, stacked)
-        pooled = pooled.mean(dim=1)  # [batch, hidden_size]
-        
-        return pooled
+from typing import Dict, Optional, List
 
 
 class ModernBERTEncoder(nn.Module):
-    """ModernBERT encoder with CLS token and DAP fine-tuning."""
+    """ModernBERT encoder with CLS token fine-tuning.
+
+    Provides utility methods to support Domain-Adaptive Pre-Training (DAP)
+    outside the forward pass (e.g., special token handling).
+    """
     
     def __init__(
         self,
         model_name: str = "answerdotai/ModernBERT-base",
         max_length: int = 512,
         use_cls_token: bool = True,
-        use_dap: bool = True,
         finetune: bool = True
     ):
         super().__init__()
         self.model_name = model_name
         self.max_length = max_length
         self.use_cls_token = use_cls_token
-        self.use_dap = use_dap
         self.finetune = finetune
         
         # Load ModernBERT model
@@ -68,13 +35,7 @@ class ModernBERTEncoder(nn.Module):
             for param in self.bert.parameters():
                 param.requires_grad = False
         
-        hidden_size = self.bert.config.hidden_size
-        
-        # DAP pooling if enabled
-        if use_dap:
-            self.dap = DAPPooling(hidden_size)
-        else:
-            self.dap = None
+        self.hidden_size = self.bert.config.hidden_size
             
     def forward(
         self,
@@ -102,8 +63,9 @@ class ModernBERTEncoder(nn.Module):
                 truncation=True,
                 return_tensors='pt'
             )
-            input_ids = encoding['input_ids']
-            attention_mask = encoding['attention_mask']
+            device = next(self.bert.parameters()).device
+            input_ids = encoding['input_ids'].to(device)
+            attention_mask = encoding['attention_mask'].to(device)
             
         # Get BERT outputs
         outputs = self.bert(
@@ -121,11 +83,41 @@ class ModernBERTEncoder(nn.Module):
         if self.use_cls_token:
             result['cls_output'] = last_hidden_state[:, 0, :]  # [batch, hidden]
         
-        # DAP pooling
-        if self.use_dap and self.dap is not None:
-            result['pooled_output'] = self.dap(last_hidden_state)
+        # Mean pooling with attention mask
+        if attention_mask is not None:
+            # Expand mask: [batch, seq_len] -> [batch, seq_len, hidden]
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+            # Sum embeddings * mask
+            sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+            # Sum mask (clamp to avoid div by zero)
+            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+            result['pooled_output'] = sum_embeddings / sum_mask
         else:
-            # Mean pooling as fallback
             result['pooled_output'] = last_hidden_state.mean(dim=1)
             
+        result['last_hidden_state'] = last_hidden_state
+        result['attention_mask'] = attention_mask
+        
         return result
+
+    def add_special_tokens(self, special_tokens: Optional[List[str]] = None) -> int:
+        """Add domain-specific special tokens and resize embeddings.
+
+        Args:
+            special_tokens: List of new special tokens to add.
+
+        Returns:
+            The number of tokens added.
+        """
+        if not special_tokens:
+            return 0
+        added = self.tokenizer.add_special_tokens({
+            'additional_special_tokens': special_tokens
+        })
+        if added > 0:
+            self.bert.resize_token_embeddings(len(self.tokenizer))
+        return added
+
+    def get_tokenizer(self) -> AutoTokenizer:
+        """Return the underlying tokenizer."""
+        return self.tokenizer

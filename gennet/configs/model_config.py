@@ -11,8 +11,13 @@ class ModernBERTConfig:
     max_length: int = 512
     hidden_size: int = 768
     use_cls_token: bool = True
-    use_dap: bool = True  # Discriminative Adapter Pooling
     finetune: bool = True
+    # Domain-Adaptive Pre-Training (DAP) settings
+    use_domain_adaptive_pretraining: bool = True
+    dap_special_tokens: Optional[list] = None
+    dap_mlm_epochs: int = 1
+    dap_learning_rate: float = 5e-5
+    dap_masking_probability: float = 0.15
 
 
 @dataclass

@@ -130,10 +130,32 @@ config = ModelConfig(
     text_config=ModernBERTConfig(
         model_name="answerdotai/ModernBERT-large",  # Use large model
         max_length=512,
-        use_dap=True,
-        finetune=True
+        finetune=True,
+        use_domain_adaptive_pretraining=True,
+        dap_special_tokens=["<DOMAIN_A>", "<DOMAIN_B>"],
+        dap_mlm_epochs=1
     )
 )
+
+### Domain-Adaptive Pre-Training (MLM)
+
+Run a brief MLM fine-tuning stage with domain-specific special tokens before supervised training:
+
+```python
+from torch.utils.data import DataLoader
+
+domain_texts = [
+    "Clinical findings indicate elevated markers <DOMAIN_A>.",
+    "Financial report shows increased revenue <DOMAIN_B>."
+]
+text_loader = DataLoader(domain_texts, batch_size=2, shuffle=True)
+
+trainer.domain_adaptive_pretrain_mlm(
+    text_dataloader=text_loader,
+    epochs=config.text_config.dap_mlm_epochs,
+    special_tokens=config.text_config.dap_special_tokens
+)
+```
 ```
 
 ### Custom Vision Encoder
